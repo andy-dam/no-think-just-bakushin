@@ -74,3 +74,4 @@ class AoharuDataset(Dataset):
         y_target = torch.tensor(row[self.target_cols].values, dtype=torch.float32)
 
         return x_input, y_target
+    

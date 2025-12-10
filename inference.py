@@ -4,7 +4,7 @@ from model import StatPredictor
 
 # --- CONFIGURATION ---
 MODEL_PATH = "aoharu_model.pth"
-FAILURE_PENALTY = 50.0 
+FAILURE_PENALTY = 50.0  # Points subtracted from Expected Value if a failure occurs
 
 # Strategy Weights
 WEIGHTS = {
@@ -17,29 +17,18 @@ try:
     model.load_state_dict(torch.load(MODEL_PATH))
     model.eval()
 except FileNotFoundError:
-    print("WARNING: Model file not found.")
+    print("WARNING: Model file not found. Please run train.py first.")
 
-def calculate_failure_chance(action_idx, current_energy, predicted_cost):
-    # (Same failure logic as before...)
-    if action_idx == 5: return 0.0
-    if action_idx == 4: return 0.05 if current_energy < 5 else 0.0
-
-    projected_energy = current_energy + predicted_cost
-    if projected_energy < 0:
-        return 0.60 + (abs(projected_energy) * 0.02)
-    elif current_energy < 30:
-        return 0.15 + ((30 - current_energy) * 0.01)
-    else:
-        return 0.0
-
-def decide_best_move(global_mood, facility_states, current_energy):
+def decide_best_move(global_mood, facility_states, current_energy, failure_rates):
     """
     Args:
         global_mood (int): 0-4
         facility_states (list of lists): A list of 5 feature vectors.
-            Each vector must contain: [FacLvl, Supp, Rain, UnityG, UnityM, Burst]
-            Index 0 = Speed info, Index 1 = Stamina info, etc.
+            Each vector: [FacLvl, Supp, Rain, UnityG, UnityM, Burst]
+            Index 0=Speed, 1=Stamina, 2=Power, 3=Guts, 4=Wisdom.
         current_energy (float): 0-100
+        failure_rates (list of floats): The 5 failure rates shown on screen (0.0 to 1.0).
+            e.g., [0.0, 0.15, 0.0, 0.80, 0.0] for [Spd, Sta, Pow, Gut, Wis]
     """
     options = ["Speed", "Stamina", "Power", "Guts", "Wisdom", "Rest"]
     best_option = None
@@ -51,30 +40,25 @@ def decide_best_move(global_mood, facility_states, current_energy):
     for action_idx in range(6):
         
         # --- 1. CONSTRUCT INPUT VECTOR ---
-        # We must grab the specific features for THIS button
-        
         if action_idx == 5: 
-            # REST CASE: It has no facility features.
-            # We create a dummy vector of zeros.
-            # Mood is normalized (mood / 4.0)
+            # REST CASE: Dummy vector
             feats = [global_mood / 4.0, 0, 0, 0, 0, 0, 0]
+            fail_prob = 0.0 # Rest is always safe
         else:
-            # TRAINING CASE: Grab the specific features for this button
-            # facility_states[0] is Speed features, [1] is Stamina, etc.
+            # TRAINING CASE: Grab specific features
             raw_feats = facility_states[action_idx] 
             
-            # Normalize Mood (Global) and Facility Level (Index 0 of raw_feats)
+            # Normalize Mood and Facility
             norm_mood = global_mood / 4.0
-            norm_fac = raw_feats[0] / 5.0 # Facility Level is first item
+            norm_fac = raw_feats[0] / 5.0 
             
-            # Reconstruct the 7-item numerical vector:
-            # [Mood, Fac, Supp, Rain, UnityG, UnityM, Burst]
             feats = [norm_mood, norm_fac, *raw_feats[1:]]
+            
+            # Get the exact failure rate from user input
+            fail_prob = failure_rates[action_idx]
 
-        # Convert to numpy/tensor
+        # Convert to tensor
         numerical_feats = np.array(feats, dtype=float)
-        
-        # One-Hot Encoding
         categorical_feats = np.zeros(6)
         categorical_feats[action_idx] = 1.0
         
@@ -103,12 +87,15 @@ def decide_best_move(global_mood, facility_states, current_energy):
                         (g_skill * WEIGHTS['skill']) + \
                         (effective_energy_change * energy_weight)
 
-        fail_prob = calculate_failure_chance(action_idx, current_energy, g_eng)
+        # --- 4. EXPECTED VALUE CALCULATION ---
         win_prob = 1.0 - fail_prob
+        
+        # EV = (Win_Score * Win%) - (Penalty * Fail%)
         final_score = (success_score * win_prob) - (FAILURE_PENALTY * fail_prob)
 
-        risk_str = f"{int(fail_prob*100)}%" if fail_prob > 0 else "Safe"
-        print(f"{options[action_idx]:<7} | Score: {final_score:>5.1f} | Risk:{risk_str:<4} | Pred: Spd+{int(g_spd)} Pow+{int(g_pow)}")
+        # Formatting output
+        risk_str = f"{int(fail_prob*100)}%"
+        print(f"{options[action_idx]:<7} | Score: {final_score:>5.1f} | Risk:{risk_str:<4} | Pred: Spd+{int(g_spd)} Eng{int(g_eng)}")
         
         if final_score > best_score:
             best_score = final_score
@@ -119,20 +106,25 @@ def decide_best_move(global_mood, facility_states, current_energy):
 
 # --- TEST RUN ---
 if __name__ == "__main__":
-    # Example: 
-    # Speed (0) is BAD: Lv1, No supports
-    # Power (2) is GODLY: Lv5, 3 Supports, 2 Rainbows, 1 Burst
+    # Example Scenario:
+    # Energy is low (20), causing high failure rates on Speed/Power.
+    # Wisdom is safe (0%).
     
-    # Format per button: [FacLvl, Supp, Rain, UnityG, UnityM, Burst]
-    speed_feats = [1, 0, 0, 0, 0, 0]
-    stamina_feats = [2, 1, 0, 1, 0, 0]
-    power_feats = [5, 3, 2, 0, 0, 1]  # The winner
-    guts_feats = [1, 0, 0, 0, 0, 0]
-    wisdom_feats = [3, 1, 0, 0, 0, 0]
+    # 5 Training States: [FacLvl, Supp, Rain, UnityG, UnityM, Burst]
+    # Speed is tempting (Burst ready) but risky!
+    speed_feats =   [3, 1, 0, 0, 0, 1] 
+    stamina_feats = [2, 0, 0, 0, 0, 0]
+    power_feats =   [4, 2, 1, 0, 0, 0]
+    guts_feats =    [1, 0, 0, 0, 0, 0]
+    wisdom_feats =  [3, 2, 1, 0, 0, 0] # Good wisdom training
     
     all_states = [speed_feats, stamina_feats, power_feats, guts_feats, wisdom_feats]
     
-    global_mood = 4 # Very Good
-    current_energy = 80
+    # Failure Rates from Screen: [Spd, Sta, Pow, Gut, Wis]
+    # Speed has 35% fail rate due to low energy! Wisdom has 0%.
+    rates = [0.35, 0.30, 0.30, 0.25, 0.0]
     
-    decide_best_move(global_mood, all_states, current_energy)
+    global_mood = 2 # Normal
+    current_energy = 20
+    
+    decide_best_move(global_mood, all_states, current_energy, rates)
