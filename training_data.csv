@@ -1,0 +1,4 @@
+mood,facility_level,training_type,count_support,count_rainbow,count_unity_growing,count_unity_maxed,count_bursts_ready,gain_spd,gain_sta,gain_pow,gain_gut,gain_wis,gain_skill,gain_energy
+4,5,0,3,1,2,0,1,45,0,15,0,0,4,-20
+2,3,4,1,0,1,0,0,0,0,0,0,20,4,5
+4,0,5,0,0,0,0,0,0,0,0,0,0,0,50
