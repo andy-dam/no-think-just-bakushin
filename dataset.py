@@ -7,18 +7,18 @@ class AoharuDataset(Dataset):
     def __init__(self, csv_file):
         """
         Args:
-            csv_file (string): Path to the csv file (e.g., 'training_data.csv').
+            csv_file (string): Path to the csv file.
         """
-        # Load the raw data
         try:
             self.data = pd.read_csv(csv_file)
         except FileNotFoundError:
-            raise FileNotFoundError(f"Could not find {csv_file}. Make sure you've generated the CSV first.")
+            raise FileNotFoundError(f"Could not find {csv_file}. Run data_logger.py first.")
 
         # --- CONFIGURATION ---
-        self.categorical_col = 'training_type' # 0=Spd, 1=Sta, 2=Pow, 3=Gut, 4=Wis, 5=Rest
+        self.categorical_col = 'training_type' # 0-5
         
-        self.numerical_cols = [
+        # 1. Base State Features (7)
+        self.base_numerical_cols = [
             'mood',                # 0-4
             'facility_level',      # 1-5
             'count_support',       # 0-5
@@ -28,16 +28,23 @@ class AoharuDataset(Dataset):
             'count_bursts_ready'   # 0-5
         ]
         
+        # 2. Growth Rate Features (5) - NEW
+        # e.g., 1.0, 1.20, 1.10...
+        self.bonus_cols = [
+            'bonus_spd', 'bonus_sta', 'bonus_pow', 'bonus_gut', 'bonus_wis'
+        ]
+        
+        # 3. Targets (7)
         self.target_cols = [
             'gain_spd', 'gain_sta', 'gain_pow', 
             'gain_gut', 'gain_wis', 'gain_skill', 'gain_energy'
         ]
 
         # --- PRE-NORMALIZATION ---
-        # Scale inputs to 0-1 range for better Neural Network performance
         self.processed_data = self.data.copy()
         self.processed_data['mood'] = self.processed_data['mood'] / 4.0
         self.processed_data['facility_level'] = self.processed_data['facility_level'] / 5.0
+        # Bonuses are usually 1.0 to 1.3, so they don't need heavy normalization.
 
     def __len__(self):
         return len(self.processed_data)
@@ -47,31 +54,32 @@ class AoharuDataset(Dataset):
             idx = idx.tolist()
 
         row = self.processed_data.iloc[idx]
-        
-        # 1. Get Action Type (0-5)
         t_type = int(row[self.categorical_col])
         
-        # 2. Get Numerical Features
-        vals = row[self.numerical_cols].values.astype(float)
+        # A. Base Features
+        base_vals = row[self.base_numerical_cols].values.astype(float)
         
-        # SPECIAL CASE: "Rest" (Type 5)
-        # If action is Rest, zero out facility/card stats. 
-        # Index 0 is 'mood', which we keep. Index 1+ are facility stats.
+        # B. Bonus Features
+        bonus_vals = row[self.bonus_cols].values.astype(float)
+
+        # SPECIAL CASE: Rest (Type 5)
+        # Zero out facility stats. Keep Mood (index 0).
+        # Bonuses also don't apply to Rest (Energy gain is fixed), so we can leave them or zero them.
+        # Leaving them allows the model to learn they are irrelevant.
         if t_type == 5:
-            vals[1:] = 0.0 
+            base_vals[1:] = 0.0 
 
-        x_numerical = torch.tensor(vals, dtype=torch.float32)
+        # Combine Numerical: [7 base + 5 bonuses] = 12 floats
+        x_numerical = torch.tensor(np.concatenate((base_vals, bonus_vals)), dtype=torch.float32)
 
-        # 3. One-Hot Encoding
-        # [Speed, Sta, Pow, Gut, Wis, Rest]
+        # C. One-Hot Encoding (6)
         x_categorical = torch.zeros(6)
         x_categorical[t_type] = 1.0
         
-        # 4. Combine Inputs (7 numerical + 6 categorical = 13 features)
+        # D. Total Input: 12 + 6 = 18 Features
         x_input = torch.cat((x_numerical, x_categorical))
 
-        # 5. Targets
+        # E. Targets
         y_target = torch.tensor(row[self.target_cols].values, dtype=torch.float32)
 
         return x_input, y_target
-    

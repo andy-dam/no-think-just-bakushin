@@ -25,6 +25,9 @@ def decide_best_move(global_mood, facility_states, current_energy, failure_rates
         global_mood (int): 0-4
         facility_states (list of lists): A list of 5 feature vectors.
             Each vector: [FacLvl, Supp, Rain, UnityG, UnityM, Burst]
+            UnityG: Unity Growing
+            UnityM: Unity Maxed
+            Burst: Burst Ready
             Index 0=Speed, 1=Stamina, 2=Power, 3=Guts, 4=Wisdom.
         current_energy (float): 0-100
         failure_rates (list of floats): The 5 failure rates shown on screen (0.0 to 1.0).
