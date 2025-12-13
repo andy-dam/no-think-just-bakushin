@@ -55,11 +55,13 @@ def main():
                 print("\n--- NEW TURN ---")
                 
                 # 1. Global
+                print("  Mood: 0=Awful, 1=Bad, 2=Normal, 3=Good, 4=Great")
                 i_mood = get_input("Mood (0-4)", last_mood)
                 if i_mood == 'q': break
                 last_mood = i_mood
 
                 # 2. Action
+                print("  Type: 0=Speed, 1=Stamina, 2=Power, 3=Guts, 4=Wit, 5=Rest")
                 i_type = get_input("Type (0-5)", "0")
                 if i_type == 'q': break
                 
